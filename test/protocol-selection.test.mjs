@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import {
   createModelsCacheEntry,
+  oauthCompletionUrl,
   productionOAuthClientId,
   refreshZenMuxModels,
+  renderOAuthCompletionPage,
   resolvePiApi,
   resolvePiBaseUrl,
   restoreCachedModels,
@@ -13,6 +15,13 @@ import {
 
 test('ships one stable production OAuth public client', () => {
   assert.equal(productionOAuthClientId, 'zpc_-6SsDHPARf6Rg5TTzbvlOQka');
+});
+
+test('renders the Pi completion page in a full-screen iframe', () => {
+  const html = renderOAuthCompletionPage();
+  assert.equal(oauthCompletionUrl, 'https://zenmux.ai/platform/oauth-completed?client=pi');
+  assert.match(html, /<iframe src="https:\/\/zenmux\.ai\/platform\/oauth-completed\?client=pi"/);
+  assert.match(html, /html, body, iframe \{ width: 100%; height: 100%; margin: 0; border: 0; \}/);
 });
 
 test('prefers Anthropic Messages over Responses and Chat Completions', () => {

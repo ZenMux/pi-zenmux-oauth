@@ -18,6 +18,26 @@ const defaultModel = process.env.ZENMUX_TEST_MODEL || 'deepseek/deepseek-v4-flas
 const clientCachePath = join(homedir(), '.pi', 'zenmux-oauth-clients.json');
 const providerId = 'zenmux';
 const modelCacheSchemaVersion = 1;
+export const oauthCompletionUrl = 'https://zenmux.ai/platform/oauth-completed?client=pi';
+
+export function renderOAuthCompletionPage() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZenMux authorization completed</title>
+  <style>
+    html, body, iframe { width: 100%; height: 100%; margin: 0; border: 0; }
+    body { overflow: hidden; }
+    iframe { display: block; }
+  </style>
+</head>
+<body>
+  <iframe src="${oauthCompletionUrl}" title="ZenMux authorization completed"></iframe>
+</body>
+</html>`;
+}
 
 const protocolAliases = new Map([
   ['anthropic', 'anthropic-messages'],
@@ -264,8 +284,8 @@ async function login(callbacks) {
         return;
       }
       settled = true;
-      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-      response.end('ZenMux authorization completed. You can close this window and return to Pi.');
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end(renderOAuthCompletionPage());
       server.close();
       resolve({ code, redirectUri });
     });

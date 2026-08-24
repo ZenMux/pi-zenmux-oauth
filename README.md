@@ -18,7 +18,7 @@ Start Pi and sign in:
 /login zenmux
 ```
 
-Pi opens the ZenMux authorization page in your browser. After approval, the browser redirects to a temporary loopback listener on `127.0.0.1`. Return to Pi, run `/model`, and select a ZenMux model.
+Pi opens the ZenMux authorization page in your browser. After approval, the browser redirects to a temporary loopback listener on `127.0.0.1`, which renders `https://zenmux.ai/platform/oauth-completed?client=pi` in a full-screen iframe. Return to Pi, run `/model`, and select a ZenMux model.
 
 ## How authentication works
 
