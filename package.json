@@ -1,6 +1,6 @@
 {
   "name": "@zenmux/pi-zenmux-oauth",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "ZenMux provider for Pi with OAuth 2.0 PKCE, dynamic model discovery, and automatic token refresh",
   "type": "module",
   "main": "./index.mjs",
@@ -49,5 +49,8 @@
     "prepack": "npm test",
     "dev": "ZENMUX_OAUTH_ORIGIN=https://pre.zenmux.ai ZENMUX_API_BASE_URL=https://zenmux.ai/api/v1 pi --approve --no-session -e ./index.mjs",
     "dev:prod": "pi --approve --no-session -e ./index.mjs"
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "0.73.1"
   }
 }

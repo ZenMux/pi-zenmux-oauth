@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { streamSimple as streamPiSimple } from '@mariozechner/pi-ai';
 
 const portalOrigin = (process.env.ZENMUX_OAUTH_ORIGIN || 'https://zenmux.ai').replace(/\/$/, '');
 const apiBaseUrl = (process.env.ZENMUX_API_BASE_URL || 'https://zenmux.ai/api/v1').replace(/\/$/, '');
@@ -96,6 +97,21 @@ export function resolvePiApi(model) {
 
 export function resolvePiBaseUrl(api) {
   return api === 'anthropic-messages' ? anthropicBaseUrl : apiBaseUrl;
+}
+
+export function addZenMuxSessionHeader(options = {}) {
+  if (!options.sessionId) return options;
+  return {
+    ...options,
+    headers: {
+      ...options.headers,
+      'x-zenmux-session-id': options.sessionId,
+    },
+  };
+}
+
+function streamZenMux(model, context, options) {
+  return streamPiSimple(model, context, addZenMuxSessionHeader(options));
 }
 
 export function toPiModel(model) {
@@ -332,6 +348,7 @@ export default function zenMuxProvider(pi) {
     name: 'ZenMux',
     baseUrl: apiBaseUrl,
     api: 'anthropic-messages',
+    streamSimple: streamZenMux,
     authHeader: true,
     models: [fallbackModel],
     async refreshModels(context) {

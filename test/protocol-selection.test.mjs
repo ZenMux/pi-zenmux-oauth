@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   createModelsCacheEntry,
+  addZenMuxSessionHeader,
   oauthCompletionUrl,
   productionOAuthClientId,
   refreshZenMuxModels,
@@ -12,6 +13,21 @@ import {
   restoreCachedModels,
   toPiModel,
 } from '../index.mjs';
+
+test('adds the Pi session id as the ZenMux routing header', () => {
+  const options = addZenMuxSessionHeader({
+    sessionId: 'pi-session-123',
+    headers: { 'x-client-request-id': 'request-123' },
+  });
+
+  assert.equal(options.headers['x-zenmux-session-id'], 'pi-session-123');
+  assert.equal(options.headers['x-client-request-id'], 'request-123');
+});
+
+test('does not add an empty ZenMux session header', () => {
+  const options = { headers: { accept: 'application/json' } };
+  assert.deepEqual(addZenMuxSessionHeader(options), options);
+});
 
 test('ships one stable production OAuth public client', () => {
   assert.equal(productionOAuthClientId, 'zpc_-6SsDHPARf6Rg5TTzbvlOQka');

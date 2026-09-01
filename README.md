@@ -4,13 +4,34 @@ Use [ZenMux](https://zenmux.ai) models in Pi with OAuth 2.0 Authorization Code +
 
 Model requests prefer Anthropic Messages, then OpenAI Responses, and use Chat Completions only as a compatibility fallback. Protocol selection is performed per model from the endpoint adapters advertised by the ZenMux model catalog; the local fallback model uses Anthropic Messages when discovery is unavailable.
 
-## Install
+## Add and update the plugin
 
 Install the package with Pi:
 
 ```bash
 pi install npm:@zenmux/pi-zenmux-oauth
 ```
+
+If it is already installed, update only this plugin:
+
+```bash
+pi update npm:@zenmux/pi-zenmux-oauth
+```
+
+To update all installed Pi extensions instead:
+
+```bash
+pi update --extensions
+```
+
+After updating, restart Pi so it reloads the new extension version. Check the
+installed package with:
+
+```bash
+pi list
+```
+
+## Sign in and use
 
 Start Pi and sign in:
 
