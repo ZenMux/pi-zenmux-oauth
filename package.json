@@ -1,6 +1,6 @@
 {
   "name": "@zenmux/pi-zenmux-oauth",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "ZenMux provider for Pi with OAuth 2.0 PKCE, dynamic model discovery, and automatic token refresh",
   "type": "module",
   "main": "./index.mjs",

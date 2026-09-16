@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { streamSimple as streamPiSimple } from '@mariozechner/pi-ai';
+import { getApiProvider } from '@mariozechner/pi-ai';
 
 const portalOrigin = (process.env.ZENMUX_OAUTH_ORIGIN || 'https://zenmux.ai').replace(/\/$/, '');
 const apiBaseUrl = (process.env.ZENMUX_API_BASE_URL || 'https://zenmux.ai/api/v1').replace(/\/$/, '');
@@ -19,7 +19,12 @@ const defaultModel = process.env.ZENMUX_TEST_MODEL || 'deepseek/deepseek-v4-flas
 const clientCachePath = join(homedir(), '.pi', 'zenmux-oauth-clients.json');
 const providerId = 'zenmux';
 const modelCacheSchemaVersion = 1;
+const modelCacheOrigin = process.env.ZENMUX_MODEL_CACHE_ORIGIN || portalOrigin;
+const startupModelCachePath = join(process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent'), 'zenmux-models.json');
 export const oauthCompletionUrl = 'https://zenmux.ai/platform/oauth-completed?client=pi';
+// Capture native transports before registerProvider replaces an API handler.
+// Calling the generic dispatcher from our handler would recurse on Pi 0.73.
+const nativeStreams = new Map(['anthropic-messages', 'openai-responses', 'openai-completions'].map(api => [api, getApiProvider(api)?.streamSimple]));
 
 export function renderOAuthCompletionPage() {
   return `<!doctype html>
@@ -100,18 +105,20 @@ export function resolvePiBaseUrl(api) {
 }
 
 export function addZenMuxSessionHeader(options = {}) {
-  if (!options.sessionId) return options;
   return {
     ...options,
     headers: {
       ...options.headers,
-      'x-zenmux-session-id': options.sessionId,
+      'X-Title': 'Pi',
+      ...(options.sessionId ? { 'x-zenmux-session-id': options.sessionId } : {}),
     },
   };
 }
 
 function streamZenMux(model, context, options) {
-  return streamPiSimple(model, context, addZenMuxSessionHeader(options));
+  const stream = nativeStreams.get(model.api);
+  if (!stream) throw new Error(`Unsupported ZenMux protocol: ${model.api}`);
+  return stream(model, context, model.provider === providerId ? addZenMuxSessionHeader(options) : options);
 }
 
 export function toPiModel(model) {
@@ -154,7 +161,9 @@ async function fetchModels(signal) {
 export function createModelsCacheEntry(models, checkedAt = Date.now()) {
   return {
     schemaVersion: modelCacheSchemaVersion,
-    oauthOrigin: portalOrigin,
+    oauthOrigin: modelCacheOrigin,
+    apiBaseUrl,
+    anthropicBaseUrl,
     modelCatalogUrl,
     models: models.map((model) => ({ ...model, provider: providerId })),
     checkedAt,
@@ -164,7 +173,9 @@ export function createModelsCacheEntry(models, checkedAt = Date.now()) {
 export function restoreCachedModels(entry) {
   if (
     entry?.schemaVersion !== modelCacheSchemaVersion
-    || entry.oauthOrigin !== portalOrigin
+    || entry.oauthOrigin !== modelCacheOrigin
+    || entry.apiBaseUrl !== apiBaseUrl
+    || entry.anthropicBaseUrl !== anthropicBaseUrl
     || entry.modelCatalogUrl !== modelCatalogUrl
     || !Array.isArray(entry.models)
   ) {
@@ -342,15 +353,31 @@ async function login(callbacks) {
   };
 }
 
-export default function zenMuxProvider(pi) {
+export default async function zenMuxProvider(pi) {
   const fallbackModel = toPiModel({ id: defaultModel });
+  // Pi 0.73 awaits extension factories but does not call refreshModels.
+  // Register the discovered catalog during loading instead of relying on it.
+  const models = await refreshZenMuxModels({
+    allowNetwork: !/^(1|true|yes)$/i.test(process.env.PI_OFFLINE || '') && !process.argv.includes('--offline'),
+    signal: AbortSignal.timeout(10000),
+    store: {
+      read: async () => JSON.parse(await readFile(startupModelCachePath, 'utf8')),
+      write: async (entry) => {
+        await mkdir(dirname(startupModelCachePath), { recursive: true });
+        const temp = `${startupModelCachePath}.${randomBytes(8).toString('hex')}.tmp`;
+        await writeFile(temp, JSON.stringify(entry), { mode: 0o600 });
+        await rename(temp, startupModelCachePath);
+      },
+    },
+  }, [fallbackModel]);
   pi.registerProvider(providerId, {
     name: 'ZenMux',
     baseUrl: apiBaseUrl,
     api: 'anthropic-messages',
     streamSimple: streamZenMux,
     authHeader: true,
-    models: [fallbackModel],
+    headers: { 'X-Title': 'Pi' },
+    models,
     async refreshModels(context) {
       return refreshZenMuxModels(context, [fallbackModel]);
     },

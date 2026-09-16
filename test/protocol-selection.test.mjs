@@ -22,11 +22,12 @@ test('adds the Pi session id as the ZenMux routing header', () => {
 
   assert.equal(options.headers['x-zenmux-session-id'], 'pi-session-123');
   assert.equal(options.headers['x-client-request-id'], 'request-123');
+  assert.equal(options.headers['X-Title'], 'Pi');
 });
 
 test('does not add an empty ZenMux session header', () => {
   const options = { headers: { accept: 'application/json' } };
-  assert.deepEqual(addZenMuxSessionHeader(options), options);
+  assert.deepEqual(addZenMuxSessionHeader(options), { headers: { accept: 'application/json', 'X-Title': 'Pi' } });
 });
 
 test('ships one stable production OAuth public client', () => {
