@@ -355,20 +355,24 @@ async function login(callbacks) {
 
 export default async function zenMuxProvider(pi) {
   const fallbackModel = toPiModel({ id: defaultModel });
+  // The catalog cache in the agent directory. Pi >= 0.87 calls refreshModels
+  // with { credential, stored, publish, allowNetwork, force, signal } and no
+  // `store`, so refreshes read and write this file too.
+  const cacheStore = {
+    read: async () => JSON.parse(await readFile(startupModelCachePath, 'utf8')),
+    write: async (entry) => {
+      await mkdir(dirname(startupModelCachePath), { recursive: true });
+      const temp = `${startupModelCachePath}.${randomBytes(8).toString('hex')}.tmp`;
+      await writeFile(temp, JSON.stringify(entry), { mode: 0o600 });
+      await rename(temp, startupModelCachePath);
+    },
+  };
   // Pi 0.73 awaits extension factories but does not call refreshModels.
   // Register the discovered catalog during loading instead of relying on it.
-  const models = await refreshZenMuxModels({
+  let models = await refreshZenMuxModels({
     allowNetwork: !/^(1|true|yes)$/i.test(process.env.PI_OFFLINE || '') && !process.argv.includes('--offline'),
     signal: AbortSignal.timeout(10000),
-    store: {
-      read: async () => JSON.parse(await readFile(startupModelCachePath, 'utf8')),
-      write: async (entry) => {
-        await mkdir(dirname(startupModelCachePath), { recursive: true });
-        const temp = `${startupModelCachePath}.${randomBytes(8).toString('hex')}.tmp`;
-        await writeFile(temp, JSON.stringify(entry), { mode: 0o600 });
-        await rename(temp, startupModelCachePath);
-      },
-    },
+    store: cacheStore,
   }, [fallbackModel]);
   pi.registerProvider(providerId, {
     name: 'ZenMux',
@@ -379,7 +383,11 @@ export default async function zenMuxProvider(pi) {
     headers: { 'X-Title': 'Pi' },
     models,
     async refreshModels(context) {
-      return refreshZenMuxModels(context, [fallbackModel]);
+      // Pi replaces the provider's models with what this returns, so when
+      // nothing newer can be loaded keep the catalog already registered
+      // rather than shrinking it to the single default model.
+      models = await refreshZenMuxModels({ ...context, store: context?.store ?? cacheStore }, models);
+      return models;
     },
     oauth: {
       name: 'ZenMux OAuth (PKCE)',
