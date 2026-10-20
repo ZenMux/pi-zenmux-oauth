@@ -6,7 +6,7 @@ Model requests prefer Anthropic Messages, then OpenAI Responses, and use Chat Co
 
 ## Compatibility
 
-Version 0.3.x requires Pi 1.3.0 or a compatible newer Pi 1.x release, and Node.js 22.19 or later. It uses the current `@earendil-works/pi-ai` transports as a peer dependency. Users of Pi 0.73 should remain on plugin 0.2.6.
+Plugin major versions follow Pi major versions. Version 1.x requires Pi 1.3.0 or a compatible newer Pi 1.x release, and Node.js 22.19 or later. It uses the current `@earendil-works/pi-ai` transports as a peer dependency. Users of Pi 0.73 should remain on plugin 0.2.6.
 
 ## Add and update the plugin
 
