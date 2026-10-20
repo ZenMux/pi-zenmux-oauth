@@ -1,6 +1,6 @@
 {
   "name": "@zenmux/pi-zenmux-oauth",
-  "version": "0.2.6",
+  "version": "0.3.0",
   "description": "ZenMux provider for Pi with OAuth 2.0 PKCE, dynamic model discovery, and automatic token refresh",
   "type": "module",
   "main": "./index.mjs",
@@ -33,7 +33,7 @@
     "url": "https://github.com/ZenMux/pi-zenmux-oauth/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "pi": {
     "extensions": [
@@ -50,7 +50,11 @@
     "dev": "ZENMUX_OAUTH_ORIGIN=https://pre.zenmux.ai ZENMUX_API_BASE_URL=https://zenmux.ai/api/v1 pi --approve --no-session -e ./index.mjs",
     "dev:prod": "pi --approve --no-session -e ./index.mjs"
   },
-  "dependencies": {
-    "@mariozechner/pi-ai": "0.73.1"
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "^1.3.0"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0"
   }
 }

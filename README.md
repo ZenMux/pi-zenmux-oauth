@@ -4,6 +4,10 @@ Use [ZenMux](https://zenmux.ai) models in Pi with OAuth 2.0 Authorization Code +
 
 Model requests prefer Anthropic Messages, then OpenAI Responses, and use Chat Completions only as a compatibility fallback. Protocol selection is performed per model from the endpoint adapters advertised by the ZenMux model catalog; the local fallback model uses Anthropic Messages when discovery is unavailable.
 
+## Compatibility
+
+Version 0.3.x requires Pi 1.3.0 or a compatible newer Pi 1.x release, and Node.js 22.19 or later. It uses the current `@earendil-works/pi-ai` transports as a peer dependency. Users of Pi 0.73 should remain on plugin 0.2.6.
+
 ## Add and update the plugin
 
 Install the package with Pi:
@@ -49,7 +53,7 @@ Pi opens the ZenMux authorization page in your browser. After approval, the brow
 - Access and refresh tokens are managed by Pi's provider credential store.
 - Refresh tokens rotate on every refresh.
 - Model requests use the OAuth access token as a Bearer token. ZenMux API keys are not exposed to the extension.
-- The extension loads and registers the model catalog during startup, including on Pi 0.73 where `refreshModels` is not called. It caches the catalog in `zenmux-models.json` under `PI_CODING_AGENT_DIR` (default `~/.pi/agent`), supports offline startup, and keeps the last valid catalog when discovery fails or returns empty.
+- The extension loads and registers the model catalog during startup and retains it through Pi 1.x cache-only refreshes. It caches the catalog in `zenmux-models.json` under `PI_CODING_AGENT_DIR` (default `~/.pi/agent`), supports offline startup, and keeps the last valid catalog when discovery fails or returns empty.
 - Cached models are scoped to the configured OAuth origin and model catalog URL, so production and development catalogs are not mixed.
 
 The package requests only these scopes:

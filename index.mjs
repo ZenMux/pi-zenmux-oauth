@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { getApiProvider } from '@mariozechner/pi-ai';
+import * as anthropic from '@earendil-works/pi-ai/api/anthropic-messages';
+import * as responses from '@earendil-works/pi-ai/api/openai-responses';
+import * as completions from '@earendil-works/pi-ai/api/openai-completions';
 
 const portalOrigin = (process.env.ZENMUX_OAUTH_ORIGIN || 'https://zenmux.ai').replace(/\/$/, '');
 const apiBaseUrl = (process.env.ZENMUX_API_BASE_URL || 'https://zenmux.ai/api/v1').replace(/\/$/, '');
@@ -22,9 +24,11 @@ const modelCacheSchemaVersion = 1;
 const modelCacheOrigin = process.env.ZENMUX_MODEL_CACHE_ORIGIN || portalOrigin;
 const startupModelCachePath = join(process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent'), 'zenmux-models.json');
 export const oauthCompletionUrl = 'https://zenmux.ai/platform/oauth-completed?client=pi';
-// Capture native transports before registerProvider replaces an API handler.
-// Calling the generic dispatcher from our handler would recurse on Pi 0.73.
-const nativeStreams = new Map(['anthropic-messages', 'openai-responses', 'openai-completions'].map(api => [api, getApiProvider(api)?.streamSimple]));
+const nativeStreams = new Map([
+  ['anthropic-messages', anthropic],
+  ['openai-responses', responses],
+  ['openai-completions', completions],
+]);
 
 export function renderOAuthCompletionPage() {
   return `<!doctype html>
@@ -115,10 +119,10 @@ export function addZenMuxSessionHeader(options = {}) {
   };
 }
 
-function streamZenMux(model, context, options) {
-  const stream = nativeStreams.get(model.api);
-  if (!stream) throw new Error(`Unsupported ZenMux protocol: ${model.api}`);
-  return stream(model, context, model.provider === providerId ? addZenMuxSessionHeader(options) : options);
+function streamZenMux(method, model, context, options) {
+  const api = nativeStreams.get(model.api);
+  if (!api) throw new Error(`Unsupported ZenMux protocol: ${model.api}`);
+  return api[method](model, context, addZenMuxSessionHeader(options));
 }
 
 export function toPiModel(model) {
@@ -282,13 +286,26 @@ async function getClientId() {
 }
 
 async function login(callbacks) {
+  callbacks.signal?.throwIfAborted();
   const currentClientId = await getClientId();
+  callbacks.signal?.throwIfAborted();
   const { verifier, challenge } = createPkce();
   const state = base64Url(randomBytes(32));
 
   const callback = await new Promise((resolve, reject) => {
     let redirectUri = '';
     let settled = false;
+    let timeout;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      callbacks.signal?.removeEventListener('abort', abort);
+      server.close();
+    };
+    const abort = () => {
+      settled = true;
+      cleanup();
+      reject(callbacks.signal.reason || new Error('ZenMux login cancelled'));
+    };
     const server = createServer((request, response) => {
       if (!redirectUri || settled) {
         response.writeHead(409).end('OAuth callback is no longer active');
@@ -306,17 +323,18 @@ async function login(callbacks) {
         settled = true;
         response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
         response.end('ZenMux authorization failed. You can close this window.');
-        server.close();
+        cleanup();
         reject(new Error(oauthError || 'OAuth callback state mismatch'));
         return;
       }
       settled = true;
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       response.end(renderOAuthCompletionPage());
-      server.close();
+      cleanup();
       resolve({ code, redirectUri });
     });
-    server.on('error', reject);
+    server.on('error', error => { cleanup(); reject(error); });
+    callbacks.signal?.addEventListener('abort', abort, { once: true });
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       redirectUri = `http://127.0.0.1:${address.port}/callback`;
@@ -331,8 +349,9 @@ async function login(callbacks) {
       callbacks.onProgress?.('Waiting for ZenMux authorization in your browser…');
       callbacks.onAuth({ url: authorizeUrl.toString() });
     });
-    const timeout = setTimeout(() => {
-      server.close();
+    timeout = setTimeout(() => {
+      settled = true;
+      cleanup();
       reject(new Error('ZenMux OAuth callback timed out after 5 minutes'));
     }, 5 * 60 * 1000);
     timeout.unref();
@@ -344,7 +363,7 @@ async function login(callbacks) {
     code: callback.code,
     redirect_uri: callback.redirectUri,
     code_verifier: verifier,
-  }));
+  }), callbacks.signal);
   if (!tokens.refresh_token) throw new Error('ZenMux did not return a refresh token');
   return {
     access: tokens.access_token,
@@ -355,9 +374,9 @@ async function login(callbacks) {
 
 export default async function zenMuxProvider(pi) {
   const fallbackModel = toPiModel({ id: defaultModel });
-  // Pi 0.73 awaits extension factories but does not call refreshModels.
-  // Register the discovered catalog during loading instead of relying on it.
-  const models = await refreshZenMuxModels({
+  // Restore/fetch before registration so startup selection and --list-models
+  // can use the catalog immediately, including during offline initialization.
+  let models = await refreshZenMuxModels({
     allowNetwork: !/^(1|true|yes)$/i.test(process.env.PI_OFFLINE || '') && !process.argv.includes('--offline'),
     signal: AbortSignal.timeout(10000),
     store: {
@@ -370,36 +389,56 @@ export default async function zenMuxProvider(pi) {
       },
     },
   }, [fallbackModel]);
-  pi.registerProvider(providerId, {
+  pi.registerProvider({
+    id: providerId,
     name: 'ZenMux',
     baseUrl: apiBaseUrl,
-    api: 'anthropic-messages',
-    streamSimple: streamZenMux,
-    authHeader: true,
     headers: { 'X-Title': 'Pi' },
-    models,
+    getModels: () => models.map(model => ({ ...model, type: 'chat', provider: providerId })),
+    stream: (model, context, options) => streamZenMux('stream', model, context, options),
+    streamSimple: (model, context, options) => streamZenMux('streamSimple', model, context, options),
     async refreshModels(context) {
-      return refreshZenMuxModels(context, [fallbackModel]);
+      // Pi 1.x supplies stored/publish rather than the old store.read/write API.
+      // Keep the startup catalog when no runtime snapshot exists or discovery fails.
+      const refreshed = await refreshZenMuxModels({
+        ...context,
+        store: { read: async () => context.stored },
+      }, models);
+      if (context.signal.aborted) return;
+      await context.publish({
+        persist: createModelsCacheEntry(refreshed),
+        update: () => { models = refreshed; },
+      });
     },
-    oauth: {
-      name: 'ZenMux OAuth (PKCE)',
-      login,
-      async refreshToken(credentials, signal) {
-        const currentClientId = await getClientId();
-        const tokens = await exchangeToken(new URLSearchParams({
-          grant_type: 'refresh_token',
-          client_id: currentClientId,
-          refresh_token: credentials.refresh,
-        }), signal);
-        if (!tokens.refresh_token) throw new Error('ZenMux refresh token rotation failed');
-        return {
-          access: tokens.access_token,
-          refresh: tokens.refresh_token,
-          expires: Date.now() + tokens.expires_in * 1000,
-        };
-      },
-      getApiKey(credentials) {
-        return credentials.access;
+    auth: {
+      oauth: {
+        name: 'ZenMux OAuth (PKCE)',
+        async login(interaction) {
+          const credentials = await login({
+            signal: interaction.signal,
+            onAuth: info => interaction.notify({ type: 'auth_url', ...info }),
+            onProgress: message => interaction.notify({ type: 'progress', message }),
+          });
+          return { ...credentials, type: 'oauth' };
+        },
+        async refresh(credentials, signal) {
+          const currentClientId = await getClientId();
+          const tokens = await exchangeToken(new URLSearchParams({
+            grant_type: 'refresh_token',
+            client_id: currentClientId,
+            refresh_token: credentials.refresh,
+          }), signal);
+          if (!tokens.refresh_token) throw new Error('ZenMux refresh token rotation failed');
+          return {
+            type: 'oauth',
+            access: tokens.access_token,
+            refresh: tokens.refresh_token,
+            expires: Date.now() + tokens.expires_in * 1000,
+          };
+        },
+        async toAuth(credentials) {
+          return { apiKey: credentials.access, headers: { Authorization: `Bearer ${credentials.access}` } };
+        },
       },
     },
   });

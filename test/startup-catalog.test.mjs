@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
-test('extension factory registers discovered models without a refreshModels hook and caches offline', async t => {
+test('native provider preserves its startup catalog through cache-only runtime refresh', async t => {
   const root = await mkdtemp(join(tmpdir(), 'pi-startup-catalog-'));
   let requests = 0;
   const server = createServer((_req, res) => {
@@ -18,7 +18,7 @@ test('extension factory registers discovered models without a refreshModels hook
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   t.after(async () => { server.close(); server.closeAllConnections(); await rm(root, { recursive: true, force: true }); });
   const env = { ...process.env, PI_CODING_AGENT_DIR: root, ZENMUX_MODEL_CATALOG_URL: `http://127.0.0.1:${server.address().port}/models`, ZENMUX_MODEL_CACHE_ORIGIN: 'https://zenmux.ai', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' };
-  const script = `import provider from ${JSON.stringify(new URL('../index.mjs', import.meta.url).href)}; await provider({registerProvider(name, config){console.log(JSON.stringify({name,models:config.models.map(x=>x.id)}))}});`;
+  const script = `import provider from ${JSON.stringify(new URL('../index.mjs', import.meta.url).href)}; let registered; await provider({registerProvider(config){registered=config}}); await registered.refreshModels({allowNetwork:false,signal:new AbortController().signal,publish:async({update})=>{update();return true;}}); console.log(JSON.stringify({name:registered.id,models:registered.getModels().map(x=>x.id)}));`;
   const execute = async more => JSON.parse((await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script], { env: { ...env, ...more } })).stdout);
   assert.deepEqual(await execute({ PI_OFFLINE: '0' }), { name: 'zenmux', models: ['test/one', 'test/two'] });
   assert.equal(requests, 1);
