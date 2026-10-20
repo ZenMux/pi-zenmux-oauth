@@ -3,9 +3,7 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import * as anthropic from '@earendil-works/pi-ai/api/anthropic-messages';
-import * as responses from '@earendil-works/pi-ai/api/openai-responses';
-import * as completions from '@earendil-works/pi-ai/api/openai-completions';
+import { anthropicMessagesApi, openAIResponsesApi, openAICompletionsApi } from '@earendil-works/pi-ai/compat';
 
 const portalOrigin = (process.env.ZENMUX_OAUTH_ORIGIN || 'https://zenmux.ai').replace(/\/$/, '');
 const apiBaseUrl = (process.env.ZENMUX_API_BASE_URL || 'https://zenmux.ai/api/v1').replace(/\/$/, '');
@@ -25,9 +23,9 @@ const modelCacheOrigin = process.env.ZENMUX_MODEL_CACHE_ORIGIN || portalOrigin;
 const startupModelCachePath = join(process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent'), 'zenmux-models.json');
 export const oauthCompletionUrl = 'https://zenmux.ai/platform/oauth-completed?client=pi';
 const nativeStreams = new Map([
-  ['anthropic-messages', anthropic],
-  ['openai-responses', responses],
-  ['openai-completions', completions],
+  ['anthropic-messages', anthropicMessagesApi()],
+  ['openai-responses', openAIResponsesApi()],
+  ['openai-completions', openAICompletionsApi()],
 ]);
 
 export function renderOAuthCompletionPage() {

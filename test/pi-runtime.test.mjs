@@ -1,13 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { dirname } from 'node:path';
 
-const extension = fileURLToPath(new URL('../index.mjs', import.meta.url));
 const cli = fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent').replace(/\/index\.js$/, '/cli.js'));
 function run(args, env) {
   return new Promise((resolve, reject) => {
@@ -25,10 +26,24 @@ function sendEvents(res, events) {
   res.end();
 }
 
-test('Pi 1.3 CLI preserves the model catalog and streams all three protocols', async t => {
+test('production package loads without peers and supports Pi 1.3 catalogs, protocols, and tools', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'pi-zenmux-runtime-'));
   await writeFile(join(dir, 'auth.json'), JSON.stringify({ zenmux: { type: 'oauth', access: 'mock-local-only', refresh: 'mock-refresh', expires: Date.now() + 3600000 } }));
   await writeFile(join(dir, 'fixture.txt'), 'TOOL_FIXTURE_OK');
+  // Pi installs extensions with --omit=dev --omit=peer. Reproduce that
+  // dependency boundary using the real packed artifact, without registry I/O.
+  const exec = promisify(execFile);
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const pack = JSON.parse((await exec('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', dir], { cwd: root })).stdout)[0];
+  await exec('tar', ['-xzf', join(dir, pack.filename), '-C', dir]);
+  const manifest = JSON.parse(await readFile(join(dir, 'package/package.json'), 'utf8'));
+  for (const name of Object.keys(manifest.dependencies ?? {})) {
+    const destination = join(dir, 'package/node_modules', name);
+    await mkdir(dirname(destination), { recursive: true });
+    const dependencyRoot = dirname(dirname(fileURLToPath(import.meta.resolve(name))));
+    await symlink(dependencyRoot, destination, 'dir');
+  }
+  const packedExtension = join(dir, 'package/index.mjs');
   const requests = [];
   const models = [
     { slug: 'test/messages', api: 'messages' },
@@ -92,7 +107,7 @@ test('Pi 1.3 CLI preserves the model catalog and streams all three protocols', a
   t.after(async () => { server.close(); server.closeAllConnections(); await rm(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${server.address().port}`;
   const env = { ...process.env, PI_CODING_AGENT_DIR: dir, ZENMUX_MODEL_CATALOG_URL: `${base}/models`, ZENMUX_API_BASE_URL: `${base}/v1`, ZENMUX_ANTHROPIC_BASE_URL: `${base}/anthropic`, NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' };
-  const common = ['--no-extensions', '-e', extension, '--no-skills', '--no-context-files', '--no-session', '--no-tools', '--approve'];
+  const common = ['--no-extensions', '-e', packedExtension, '--no-skills', '--no-context-files', '--no-session', '--no-tools', '--approve'];
   const listed = await run([...common, '--list-models', 'zenmux'], env);
   for (const model of models) assert.ok(listed.stdout.includes(model.slug), JSON.stringify(listed));
   for (const [model, expected] of [['messages', 'PI_MESSAGES_OK'], ['responses', 'PI_RESPONSES_OK'], ['completions', 'PI_COMPLETIONS_OK']]) {
